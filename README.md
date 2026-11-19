@@ -7,8 +7,8 @@ FloatingPhoto uses Apple Vision to lift subjects, Core Motion to read device til
 ## Requirements
 
 - iOS 15+
-- Swift 5.9+
-- Xcode 15+
+- Swift 5.7+
+- Xcode 14+
 - Swift Package Manager
 
 ## Quick start
@@ -58,8 +58,9 @@ try await scene.exportVideo(
 
 ## Compatibility
 
-- iOS 17 and later use foreground instance masks for people, pets, and other noticeable objects.
+- iOS 17 and later use foreground instance masks for people, pets, and other noticeable objects when built with an iOS 17 SDK.
 - iOS 15 and 16 use person segmentation. Non-person images use the whole-image fallback when a subject mask is unavailable.
+- Swift 5.7 and Xcode 14 can build the iOS 15 fallback path. Swift 5.9 and Xcode 15 or later enable the iOS 17 foreground-instance path.
 - The library itself starts at iOS 15. The included picker demo uses PhotosPicker on iOS 16 and later.
 
 ## Current scope

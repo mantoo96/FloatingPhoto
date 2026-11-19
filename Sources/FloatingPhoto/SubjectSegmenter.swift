@@ -18,11 +18,15 @@ struct SubjectSegmenter {
     func makeLayers(from source: CIImage, configuration: FloatingPhotoConfiguration) throws -> FloatingPhotoLayers {
         let mask: CIImage
 
+#if swift(>=5.9)
         if #available(iOS 17.0, *) {
             mask = try foregroundInstanceMask(for: source)
         } else {
             mask = try personMask(for: source)
         }
+#else
+        mask = try personMask(for: source)
+#endif
 
         let normalizedMask = normalize(mask, to: source.extent)
         let clear = CIImage(color: .clear).cropped(to: source.extent)
@@ -53,6 +57,7 @@ struct SubjectSegmenter {
         )
     }
 
+#if swift(>=5.9)
     @available(iOS 17.0, *)
     private func foregroundInstanceMask(for source: CIImage) throws -> CIImage {
         let handler = VNImageRequestHandler(ciImage: source, options: [:])
@@ -69,6 +74,7 @@ struct SubjectSegmenter {
         )
         return CIImage(cvPixelBuffer: maskBuffer)
     }
+#endif
 
     private func personMask(for source: CIImage) throws -> CIImage {
         let handler = VNImageRequestHandler(ciImage: source, options: [:])
