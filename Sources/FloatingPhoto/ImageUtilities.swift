@@ -22,14 +22,27 @@ extension UIImage.Orientation {
 extension UIImage {
     func floatingPhotoCIImage() -> CIImage? {
         guard let input = CIImage(image: self) else { return nil }
-        return input.oriented(orientation.cgImagePropertyOrientation)
+        return input.oriented(imageOrientation.cgImagePropertyOrientation)
     }
 }
 
-extension CIImage {
-    func floatingPhotoUIImage() -> UIImage? {
+extension FloatingPhotoLayers {
+    @MainActor
+    func makePreviewLayers() -> FloatingPhotoPreviewLayers? {
         let context = CIContext(options: [.workingColorSpace: NSNull()])
-        guard let cgImage = context.createCGImage(self, from: extent) else { return nil }
-        return UIImage(cgImage: cgImage, scale: 1, orientation: .up)
+        guard let backgroundCGImage = context.createCGImage(background, from: background.extent) else {
+            return nil
+        }
+
+        let foregroundImage = foreground.flatMap { image in
+            context.createCGImage(image, from: image.extent).map {
+                UIImage(cgImage: $0, scale: 1, orientation: .up)
+            }
+        }
+
+        return FloatingPhotoPreviewLayers(
+            background: UIImage(cgImage: backgroundCGImage, scale: 1, orientation: .up),
+            foreground: foregroundImage
+        )
     }
 }

@@ -21,7 +21,7 @@ public struct FloatingPhotoView: View {
     public var body: some View {
         GeometryReader { proxy in
             ZStack {
-                if let layers = scene.layers {
+                if let layers = scene.previewLayers {
                     layerView(layers: layers, size: proxy.size)
                 } else {
                     Image(uiImage: scene.image)
@@ -44,35 +44,35 @@ public struct FloatingPhotoView: View {
         .accessibilityLabel("Floating photo")
     }
 
-    @ViewBuilder
-    private func layerView(layers: FloatingPhotoLayers, size: CGSize) -> some View {
-        let offset: CGSize
-        switch preferredMotion {
-        case .device:
-            offset = motion.offset
-        case let .staticOffset(x, y):
-            offset = CGSize(width: x, height: y)
-        }
-
+    private func layerView(layers: FloatingPhotoPreviewLayers, size: CGSize) -> some View {
         ZStack {
-            Image(uiImage: layers.background.floatingPhotoUIImage() ?? scene.image)
+            Image(uiImage: layers.background)
                 .resizable()
                 .scaledToFill()
                 .scaleEffect(scene.configuration.backgroundScale)
                 .offset(
-                    x: offset.width * scene.configuration.backgroundDepth * size.width,
-                    y: offset.height * scene.configuration.backgroundDepth * size.height
+                    x: currentOffset.width * scene.configuration.backgroundDepth * size.width,
+                    y: currentOffset.height * scene.configuration.backgroundDepth * size.height
                 )
 
-            if let foreground = layers.foreground?.floatingPhotoUIImage() {
+            if let foreground = layers.foreground {
                 Image(uiImage: foreground)
                     .resizable()
                     .scaledToFill()
                     .offset(
-                        x: offset.width * scene.configuration.foregroundDepth * size.width,
-                        y: offset.height * scene.configuration.foregroundDepth * size.height
+                        x: currentOffset.width * scene.configuration.foregroundDepth * size.width,
+                        y: currentOffset.height * scene.configuration.foregroundDepth * size.height
                     )
             }
+        }
+    }
+
+    private var currentOffset: CGSize {
+        switch preferredMotion {
+        case .device:
+            return motion.offset
+        case let .staticOffset(x, y):
+            return CGSize(width: x, height: y)
         }
     }
 }

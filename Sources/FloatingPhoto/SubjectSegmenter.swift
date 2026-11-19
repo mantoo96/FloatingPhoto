@@ -1,11 +1,17 @@
 import CoreImage
 import CoreVideo
+import UIKit
 import Vision
 
 struct FloatingPhotoLayers {
     let background: CIImage
     let foreground: CIImage?
     let extent: CGRect
+}
+
+struct FloatingPhotoPreviewLayers {
+    let background: UIImage
+    let foreground: UIImage?
 }
 
 struct SubjectSegmenter {

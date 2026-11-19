@@ -10,15 +10,16 @@ struct FloatingPhotoRenderer {
 
     func render(
         at normalizedOffset: CGSize,
-        canvasSize: CGSize,
-        motion: FloatingPhotoMotion = .staticOffset(x: 0, y: 0)
+        canvasSize: CGSize
     ) -> CIImage {
-        let offset = resolvedOffset(normalizedOffset, motion: motion)
-        let extent = layers.extent
+        let offset = CGSize(
+            width: max(-1, min(1, normalizedOffset.width)),
+            height: max(-1, min(1, normalizedOffset.height))
+        )
         let target = CGRect(origin: .zero, size: canvasSize)
 
         let background = layers.background
-            .transformedToFill(target)
+            .transformedToFill(target, additionalScale: configuration.backgroundScale)
             .transformed(by: CGAffineTransform(
                 translationX: offset.width * configuration.backgroundDepth * canvasSize.width,
                 y: -offset.height * configuration.backgroundDepth * canvasSize.height
@@ -123,15 +124,6 @@ struct FloatingPhotoRenderer {
         }
     }
 
-    private func resolvedOffset(_ offset: CGSize, motion: FloatingPhotoMotion) -> CGSize {
-        switch motion {
-        case .device:
-            return offset
-        case let .staticOffset(x, y):
-            return CGSize(width: x, height: y)
-        }
-    }
-
     private func makePixelBuffer(size: CGSize) -> CVPixelBuffer? {
         var buffer: CVPixelBuffer?
         let attributes: [CFString: Any] = [
@@ -154,8 +146,8 @@ struct FloatingPhotoRenderer {
 }
 
 private extension CIImage {
-    func transformedToFill(_ target: CGRect) -> CIImage {
-        let scale = max(target.width / extent.width, target.height / extent.height)
+    func transformedToFill(_ target: CGRect, additionalScale: CGFloat = 1) -> CIImage {
+        let scale = max(target.width / extent.width, target.height / extent.height) * additionalScale
         let scaled = transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let x = target.midX - scaled.extent.midX
         let y = target.midY - scaled.extent.midY

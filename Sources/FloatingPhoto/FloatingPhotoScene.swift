@@ -12,6 +12,7 @@ public final class FloatingPhotoScene: ObservableObject {
     @Published public private(set) var phase: FloatingPhotoPhase = .idle
 
     var layers: FloatingPhotoLayers?
+    var previewLayers: FloatingPhotoPreviewLayers?
 
     private let segmenter = SubjectSegmenter()
 
@@ -35,7 +36,7 @@ public final class FloatingPhotoScene: ObservableObject {
 
         let configuration = configuration
         let segmenter = segmenter
-        let result = await Task.detached(priority: .userInitiated) {
+        let result: FloatingPhotoLayers? = await Task.detached(priority: .userInitiated) {
             do {
                 return try segmenter.makeLayers(from: source, configuration: configuration)
             } catch {
@@ -43,21 +44,21 @@ public final class FloatingPhotoScene: ObservableObject {
             }
         }.value
 
+        let preparedLayers: FloatingPhotoLayers
         if let result {
-            layers = result
+            preparedLayers = result
             phase = .ready
         } else {
-            layers = FloatingPhotoLayers(
+            preparedLayers = FloatingPhotoLayers(
                 background: source,
                 foreground: nil,
                 extent: source.extent
             )
             phase = .degraded
         }
-    }
 
-    func sourceImage() -> UIImage? {
-        image.floatingPhotoCIImage()?.floatingPhotoUIImage()
+        layers = preparedLayers
+        previewLayers = preparedLayers.makePreviewLayers()
     }
 
     /// Exports the same 2.5D scene shown by `FloatingPhotoView`.
