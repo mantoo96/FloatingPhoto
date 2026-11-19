@@ -83,7 +83,7 @@ struct FloatingPhotoRenderer {
 
         for frame in 0..<frameCount {
             while !input.isReadyForMoreMediaData {
-                try await Task.sleep(for: .milliseconds(2))
+                try await Task.sleep(nanoseconds: 2_000_000)
             }
 
             let progress = frameCount <= 1 ? 0 : Double(frame) / Double(frameCount - 1)

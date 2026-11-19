@@ -2,12 +2,13 @@
 
 A SwiftUI-first iOS package that turns an ordinary photo into a bounded motion-parallax scene.
 
-FloatingPhoto uses Apple's Vision foreground instance-mask request to lift noticeable subjects, Core Motion to read device tilt, and AVFoundation to export the same effect as an MP4 video. It is deliberately a 2.5D effect with a safe motion range, not a promise of full 3D reconstruction.
+FloatingPhoto uses Apple Vision to lift subjects, Core Motion to read device tilt, and AVFoundation to export the same effect as an MP4 video. On iOS 17 and later it uses foreground instance masks for people, pets, and other noticeable objects. On iOS 15 and 16 it uses Vision's person-segmentation request and safely falls back to a whole-image motion effect for non-person photos. It is deliberately a 2.5D effect with a safe motion range, not a promise of full 3D reconstruction.
 
 ## Requirements
 
-- iOS 17+
-- Swift 6+
+- iOS 15+
+- Swift 5.9+
+- Xcode 15+
 - Swift Package Manager
 
 ## Quick start
@@ -54,6 +55,12 @@ try await scene.exportVideo(
 - Segmentation failure degrades to a gentle whole-image result so a user can still complete their flow.
 - The exported animation uses the same renderer concept as the interactive preview.
 - The package keeps the API small and leaves PhotosPicker, navigation, persistence, and sharing to the host app.
+
+## Compatibility
+
+- iOS 17 and later use foreground instance masks for people, pets, and other noticeable objects.
+- iOS 15 and 16 use person segmentation. Non-person images use the whole-image fallback when a subject mask is unavailable.
+- The library itself starts at iOS 15. The included picker demo uses PhotosPicker on iOS 16 and later.
 
 ## Current scope
 

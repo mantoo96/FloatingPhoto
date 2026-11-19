@@ -1,10 +1,10 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 5.9
 import PackageDescription
 
 let package = Package(
     name: "FloatingPhoto",
     platforms: [
-        .iOS(.v17)
+        .iOS(.v15)
     ],
     products: [
         .library(
@@ -22,5 +22,6 @@ let package = Package(
             dependencies: ["FloatingPhoto"],
             path: "Tests/FloatingPhotoTests"
         )
-    ]
+    ],
+    swiftLanguageVersions: [.v5]
 )
