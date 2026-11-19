@@ -26,8 +26,8 @@ struct ContentView: View {
             image: photo,
             configuration: .init(
                 intensity: 0.75,
-                backgroundBlur: 6,
-                maximumTilt: 0.1
+                maximumTilt: 0.1,
+                backgroundBlur: 6
             )
         )
         .aspectRatio(3 / 4, contentMode: .fit)
