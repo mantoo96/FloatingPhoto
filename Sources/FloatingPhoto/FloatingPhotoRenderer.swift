@@ -18,15 +18,27 @@ struct FloatingPhotoRenderer {
         )
         let target = CGRect(origin: .zero, size: canvasSize)
 
-        let background = layers.background
+        let originalBackground = layers.background
             .transformedToFill(target, additionalScale: configuration.backgroundScale)
             .transformed(by: CGAffineTransform(
                 translationX: offset.width * configuration.backgroundDepth * canvasSize.width,
                 y: -offset.height * configuration.backgroundDepth * canvasSize.height
             ))
 
+        let softenedBackground = layers.backgroundBlurred
+            .transformedToFill(target, additionalScale: configuration.backgroundScale)
+            .transformed(by: CGAffineTransform(
+                translationX: offset.width * configuration.backgroundDepth * canvasSize.width,
+                y: -offset.height * configuration.backgroundDepth * canvasSize.height
+            ))
+            .withAlpha(configuration.backgroundBlurOpacity)
+
+        let background = softenedBackground
+            .composited(over: originalBackground)
+            .cropped(to: target)
+
         guard let foreground = layers.foreground else {
-            return background.cropped(to: target)
+            return background
         }
 
         let movedForeground = foreground
@@ -88,7 +100,7 @@ struct FloatingPhotoRenderer {
 
             let progress = frameCount <= 1 ? 0 : Double(frame) / Double(frameCount - 1)
             let phase = progress < 0.5 ? progress * 2 : (1 - progress) * 2
-            let angle = (phase * 2 - 1)
+            let angle = phase * 2 - 1
             let image = render(
                 at: CGSize(
                     width: CGFloat(angle) * configuration.intensity,
@@ -146,6 +158,12 @@ struct FloatingPhotoRenderer {
 }
 
 private extension CIImage {
+    func withAlpha(_ alpha: CGFloat) -> CIImage {
+        applyingFilter("CIColorMatrix", parameters: [
+            "inputAVector": CIVector(x: 0, y: 0, z: 0, w: alpha)
+        ])
+    }
+
     func transformedToFill(_ target: CGRect, additionalScale: CGFloat = 1) -> CIImage {
         let scale = max(target.width / extent.width, target.height / extent.height) * additionalScale
         let scaled = transformed(by: CGAffineTransform(scaleX: scale, y: scale))

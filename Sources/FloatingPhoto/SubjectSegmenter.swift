@@ -5,12 +5,14 @@ import Vision
 
 struct FloatingPhotoLayers {
     let background: CIImage
+    let backgroundBlurred: CIImage
     let foreground: CIImage?
     let extent: CGRect
 }
 
 struct FloatingPhotoPreviewLayers {
     let background: UIImage
+    let backgroundBlurred: UIImage
     let foreground: UIImage?
 }
 
@@ -37,9 +39,9 @@ struct SubjectSegmenter {
             ])
             .cropped(to: source.extent)
 
-        let background: CIImage
+        let backgroundBlurred: CIImage
         if configuration.backgroundBlur > 0 {
-            background = source
+            backgroundBlurred = source
                 .clampedToExtent()
                 .applyingFilter(
                     "CIGaussianBlur",
@@ -47,11 +49,12 @@ struct SubjectSegmenter {
                 )
                 .cropped(to: source.extent)
         } else {
-            background = source
+            backgroundBlurred = source
         }
 
         return FloatingPhotoLayers(
-            background: background,
+            background: source,
+            backgroundBlurred: backgroundBlurred,
             foreground: foreground,
             extent: source.extent
         )

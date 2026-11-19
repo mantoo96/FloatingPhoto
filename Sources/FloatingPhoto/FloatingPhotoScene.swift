@@ -51,6 +51,7 @@ public final class FloatingPhotoScene: ObservableObject {
         } else {
             preparedLayers = FloatingPhotoLayers(
                 background: source,
+                backgroundBlurred: source,
                 foreground: nil,
                 extent: source.extent
             )

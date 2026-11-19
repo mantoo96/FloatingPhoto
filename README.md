@@ -25,9 +25,10 @@ struct ContentView: View {
         FloatingPhotoView(
             image: photo,
             configuration: .init(
-                intensity: 0.75,
-                maximumTilt: 0.1,
-                backgroundBlur: 6
+                intensity: 0.55,
+                maximumTilt: 0.22,
+                backgroundBlur: 5,
+                backgroundBlurOpacity: 0.22
             )
         )
         .aspectRatio(3 / 4, contentMode: .fit)

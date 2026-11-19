@@ -30,7 +30,10 @@ extension FloatingPhotoLayers {
     @MainActor
     func makePreviewLayers() -> FloatingPhotoPreviewLayers? {
         let context = CIContext(options: [.workingColorSpace: NSNull()])
-        guard let backgroundCGImage = context.createCGImage(background, from: background.extent) else {
+        guard
+            let backgroundCGImage = context.createCGImage(background, from: background.extent),
+            let blurredCGImage = context.createCGImage(backgroundBlurred, from: backgroundBlurred.extent)
+        else {
             return nil
         }
 
@@ -42,6 +45,7 @@ extension FloatingPhotoLayers {
 
         return FloatingPhotoPreviewLayers(
             background: UIImage(cgImage: backgroundCGImage, scale: 1, orientation: .up),
+            backgroundBlurred: UIImage(cgImage: blurredCGImage, scale: 1, orientation: .up),
             foreground: foregroundImage
         )
     }

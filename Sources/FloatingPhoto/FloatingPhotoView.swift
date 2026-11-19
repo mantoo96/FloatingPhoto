@@ -55,6 +55,16 @@ public struct FloatingPhotoView: View {
                     y: currentOffset.height * scene.configuration.backgroundDepth * size.height
                 )
 
+            Image(uiImage: layers.backgroundBlurred)
+                .resizable()
+                .scaledToFill()
+                .scaleEffect(scene.configuration.backgroundScale)
+                .opacity(scene.configuration.backgroundBlurOpacity)
+                .offset(
+                    x: currentOffset.width * scene.configuration.backgroundDepth * size.width,
+                    y: currentOffset.height * scene.configuration.backgroundDepth * size.height
+                )
+
             if let foreground = layers.foreground {
                 Image(uiImage: foreground)
                     .resizable()
@@ -62,6 +72,12 @@ public struct FloatingPhotoView: View {
                     .offset(
                         x: currentOffset.width * scene.configuration.foregroundDepth * size.width,
                         y: currentOffset.height * scene.configuration.foregroundDepth * size.height
+                    )
+                    .shadow(
+                        color: .black.opacity(0.22),
+                        radius: 14,
+                        x: 0,
+                        y: 8
                     )
             }
         }
