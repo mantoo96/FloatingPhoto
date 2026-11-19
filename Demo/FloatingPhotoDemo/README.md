@@ -1,17 +1,11 @@
-# FloatingPhoto demo app
+# FloatingPhoto Demo
 
-Create an iOS App target in Xcode and add the local package at the repository root. The smallest demo is:
+Open `FloatingPhotoDemo.xcodeproj` in Xcode to run the demo app.
 
-```swift
-import FloatingPhoto
-import SwiftUI
+The demo is configured with the FloatingPhoto demo signing identity:
 
-struct ContentView: View {
-    let image: UIImage
+- Bundle identifier: `com.example.FloatingPhotoDemo`
+- Development team: `your-team-id`
+- Minimum iOS: 16.0 because the picker uses `PhotosPicker`
 
-    var body: some View {
-        FloatingPhotoView(image: image)
-            .ignoresSafeArea()
-    }
-}
-```
+The demo links the local `FloatingPhoto` Swift package from the parent directory. Installing it with this bundle identifier replaces the app already installed under the FloatingPhoto demo bundle identifier.

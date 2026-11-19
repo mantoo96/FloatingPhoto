@@ -26,8 +26,8 @@ private struct PhotoPickerDemo: View {
                         image: photo,
                         configuration: .init(
                             intensity: 0.75,
-                            backgroundBlur: 6,
-                            maximumTilt: 0.1
+                            maximumTilt: 0.1,
+                            backgroundBlur: 6
                         )
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 24))
