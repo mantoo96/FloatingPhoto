@@ -25,9 +25,9 @@ The first handheld position is the center of the effect. `configuration: .subtle
 
 ## How it works
 
-On iOS 17 and later, Vision's foreground instance mask extracts the noticeable subject. On iOS 15 and 16, the library uses Vision person segmentation. The background stays a complete photo with a restrained blur layer. The extracted subject moves independently over it, and a low-opacity white haze softens the boundary so the separation reads clearly.
+On iOS 17 and later, Vision's foreground instance mask extracts the noticeable subject. On iOS 15 and 16, the library uses Vision person segmentation. The background becomes a cleaned photo plate with the extracted subject area softly filled. The extracted subject moves independently over that plate, so the scene produces relative depth without leaving a sharp duplicate behind. A low-opacity white haze softly blends the contact edge.
 
-The default scene uses translations for the two layers. This keeps background texture stable while the subject supplies most of the depth cue. A small centered crop leaves room for the bounded movement. If extraction is unavailable, the library keeps the complete photo and degrades to a simpler motion result.
+The default scene uses translations for the cleaned background plate and foreground subject. This keeps background texture stable while the subject supplies most of the depth cue. A small centered crop leaves room for the bounded movement. If extraction is unavailable, the library keeps the complete photo and degrades to a simpler motion result.
 
 The bundled Depth Anything V2 Small Core ML model remains available for relative-depth estimation and compatibility with the package's depth surface utilities. The live card uses the subject mask for the two-layer composition so background pixels do not receive a mesh warp. The model is distributed under Apache License 2.0. [Apple Core ML model catalog](https://developer.apple.com/machine-learning/models/) · [Depth Anything V2 authors](https://github.com/DepthAnything/Depth-Anything-V2) · [Bundled model license](Sources/FloatingPhoto/Resources/DepthAnything-LICENSE.txt)
 

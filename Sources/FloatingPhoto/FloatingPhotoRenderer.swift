@@ -3,7 +3,7 @@ import CoreImage
 import CoreVideo
 import MetalKit
 
-/// Preview and movie frames compose a sharp background, a softened background,
+/// Preview and movie frames compose a cleaned background plate, a softened background,
 /// and an independently translated subject cutout.
 final class FloatingPhotoRenderer {
     static let context = CIContext(options: [.cacheIntermediates: false])
