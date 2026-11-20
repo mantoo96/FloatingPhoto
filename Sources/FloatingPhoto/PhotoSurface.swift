@@ -9,17 +9,26 @@ struct PhotoSurface {
     let vertices: [SIMD4<Float>]
     let indices: [UInt16]
     let hasDepth: Bool
+    let hasForegroundMask: Bool
     private let maximumGradient: Float
 
-    init(imageSize: CGSize, depth: CIImage?, configuration: FloatingPhotoConfiguration, context: CIContext) {
+    init(
+        imageSize: CGSize,
+        depth: CIImage?,
+        foregroundMask: CIImage? = nil,
+        configuration: FloatingPhotoConfiguration,
+        context: CIContext
+    ) {
         let longSide = max(imageSize.width, imageSize.height)
         let columns = max(2, Int((128 * imageSize.width / longSide).rounded()))
         let rows = max(2, Int((128 * imageSize.height / longSide).rounded()))
-        let samples = depth.flatMap { Self.sample($0, columns: columns, rows: rows, configuration: configuration, context: context) }
+        let depthSamples = depth.flatMap { Self.sample($0, columns: columns, rows: rows, configuration: configuration, context: context) }
+        let maskSamples = foregroundMask.flatMap { Self.sample($0, columns: columns, rows: rows, configuration: configuration, context: context) }
         self.imageSize = imageSize
         self.columns = columns
         self.rows = rows
-        hasDepth = samples != nil
+        hasDepth = depthSamples != nil
+        hasForegroundMask = maskSamples != nil
 
         let shortSide = min(imageSize.width, imageSize.height)
         let width = Float(imageSize.width / shortSide), height = Float(imageSize.height / shortSide)
@@ -33,7 +42,14 @@ struct PhotoSurface {
                 let distanceToEdge = min(min(u, 1 - u) * width, min(v, 1 - v) * height)
                 let t = min(1, distanceToEdge / 0.09)
                 let edgeWeight = t * t * (3 - 2 * t)
-                let disparity = samples.map { $0[y * (columns + 1) + x] * (foreground + background) - background } ?? (-0.35 * background)
+                let index = y * (columns + 1) + x
+                let disparity: Float
+                if let maskSamples {
+                    let subjectDepth = depthSamples?[index] ?? maskSamples[index]
+                    disparity = subjectDepth * maskSamples[index] * foreground
+                } else {
+                    disparity = depthSamples.map { $0[index] * (foreground + background) - background } ?? (-0.35 * background)
+                }
                 vertices.append(SIMD4(u, v, disparity * edgeWeight, 0))
             }
         }

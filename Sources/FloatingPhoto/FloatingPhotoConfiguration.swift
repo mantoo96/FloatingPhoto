@@ -7,14 +7,18 @@ public struct FloatingPhotoConfiguration: Sendable, Hashable {
     public var maximumTilt: CGFloat
     /// Multiplies sub-limit device tilt before the visual travel is capped.
     public var motionSensitivity: CGFloat
-    /// Softens transitions in the depth field, in combination with `backgroundBlurOpacity`.
+    /// Adds a restrained blur layer behind the extracted subject.
     public var backgroundBlur: CGFloat
     public var backgroundBlurOpacity: CGFloat
     /// The centered crop applied to the whole scene at every camera position.
     public var backgroundScale: CGFloat
+    /// Relative travel of the extracted subject.
     public var foregroundDepth: CGFloat
+    /// Relative travel of the complete background.
     public var backgroundDepth: CGFloat
     public var allowsDeviceMotion: Bool
+    /// Adds a soft white haze around the extracted subject.
+    public var edgeFogOpacity: CGFloat
 
     public init(
         intensity: CGFloat = 0.8,
@@ -22,10 +26,11 @@ public struct FloatingPhotoConfiguration: Sendable, Hashable {
         motionSensitivity: CGFloat = 1.1,
         backgroundBlur: CGFloat = 5,
         backgroundBlurOpacity: CGFloat = 0.22,
-        backgroundScale: CGFloat = 1,
-        foregroundDepth: CGFloat = 0.48,
-        backgroundDepth: CGFloat = 0.64,
-        allowsDeviceMotion: Bool = true
+        backgroundScale: CGFloat = 1.02,
+        foregroundDepth: CGFloat = 0.82,
+        backgroundDepth: CGFloat = 0.12,
+        allowsDeviceMotion: Bool = true,
+        edgeFogOpacity: CGFloat = 0.10
     ) {
         self.intensity = max(0, intensity)
         self.maximumTilt = max(0.01, maximumTilt)
@@ -36,6 +41,7 @@ public struct FloatingPhotoConfiguration: Sendable, Hashable {
         self.foregroundDepth = max(0, foregroundDepth)
         self.backgroundDepth = max(0, backgroundDepth)
         self.allowsDeviceMotion = allowsDeviceMotion
+        self.edgeFogOpacity = min(1, max(0, edgeFogOpacity))
     }
 
     public static let `default` = Self()
@@ -45,9 +51,10 @@ public struct FloatingPhotoConfiguration: Sendable, Hashable {
         maximumTilt: 0.25,
         backgroundBlur: 6,
         backgroundBlurOpacity: 0.18,
-        backgroundScale: 1,
-        foregroundDepth: 0.48,
-        backgroundDepth: 0.64
+        backgroundScale: 1.01,
+        foregroundDepth: 0.58,
+        backgroundDepth: 0.06,
+        edgeFogOpacity: 0.08
     )
 }
 

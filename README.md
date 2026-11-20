@@ -1,6 +1,6 @@
 # FloatingPhoto
 
-Turn an ordinary photo into a SwiftUI card with motion parallax. When the phone tilts, nearby details shift against distant ones. Photos are processed on the device.
+Turn an ordinary photo into a SwiftUI card with a separated foreground, a softened background, and motion parallax driven by device tilt. Photos are processed on the device.
 
 ## Quick start
 
@@ -21,17 +21,15 @@ struct PhotoCard: View {
 }
 ```
 
-The first handheld position is the center of the effect. `configuration: .subtle` reduces travel. `motionSensitivity` adjusts how quickly a small tilt reaches the configured travel limit. `motion: .staticOffset(x: 1, y: 0)` previews a fixed camera position. Both inputs use the same travel limits. The interactive view honors Reduce Motion.
+The first handheld position is the center of the effect. `configuration: .subtle` reduces travel. `motionSensitivity` adjusts how quickly a small tilt reaches the configured travel limit. `edgeFogOpacity` controls the soft white haze around a detected subject. `motion: .staticOffset(x: 1, y: 0)` previews a fixed camera position. Both inputs use the same travel limits. The interactive view honors Reduce Motion.
 
 ## How it works
 
-`FloatingPhotoScene` estimates depth once per photo. Metal maps the original photo onto a continuous surface. At neutral the original crop is preserved. Tilting moves points according to their relative depth. The photo boundary stays fixed and the camera limits travel at steep depth changes to keep the surface continuous. A narrow strip near an occlusion can stretch under tilt because one photo only contains the visible side of the scene.
+On iOS 17 and later, Vision's foreground instance mask extracts the noticeable subject. On iOS 15 and 16, the library uses Vision person segmentation. The background stays a complete photo with a restrained blur layer. The extracted subject moves independently over it, and a low-opacity white haze softens the boundary so the separation reads clearly.
 
-- On iOS 17 and later, builds made with Xcode 15 or later include the **19 MB Depth Anything V2 Small** Core ML model by Lihe Yang et al., converted by Apple. It estimates depth throughout the scene. If inference fails, Vision can supply a foreground mask as an approximate depth field.
-- iOS 15–16 and Xcode 14 builds use Vision person segmentation. When the depth field is unavailable or flat, the scene uses gentle whole-photo motion. When Metal is unavailable, it displays the still photo.
-- `foregroundDepth` and `backgroundDepth` weight near and far motion. `backgroundScale` is a centered crop of the complete photo. The existing `backgroundBlur` and `backgroundBlurOpacity` parameters now soften transitions in the depth field. Image detail stays sharp.
+The default scene uses translations for the two layers. This keeps background texture stable while the subject supplies most of the depth cue. A small centered crop leaves room for the bounded movement. If extraction is unavailable, the library keeps the complete photo and degrades to a simpler motion result.
 
-The model is distributed under Apache License 2.0. [Apple Core ML model catalog](https://developer.apple.com/machine-learning/models/) · [Depth Anything V2 authors](https://github.com/DepthAnything/Depth-Anything-V2) · [Bundled model license](Sources/FloatingPhoto/Resources/DepthAnything-LICENSE.txt)
+The bundled Depth Anything V2 Small Core ML model remains available for relative-depth estimation and compatibility with the package's depth surface utilities. The live card uses the subject mask for the two-layer composition so background pixels do not receive a mesh warp. The model is distributed under Apache License 2.0. [Apple Core ML model catalog](https://developer.apple.com/machine-learning/models/) · [Depth Anything V2 authors](https://github.com/DepthAnything/Depth-Anything-V2) · [Bundled model license](Sources/FloatingPhoto/Resources/DepthAnything-LICENSE.txt)
 
 ## Video export
 
@@ -45,4 +43,4 @@ try await scene.exportVideo(
 )
 ```
 
-The MP4 follows a short camera path through the same renderer as the live view, starting and ending at the original composition. The [picker demo](Demo/FloatingPhotoDemo/README.md) runs on iOS 16 or later.
+The MP4 uses the same two-layer renderer as the interactive view, starting and ending at the original motion path. The [picker demo](Demo/FloatingPhotoDemo/README.md) runs on iOS 16 or later.

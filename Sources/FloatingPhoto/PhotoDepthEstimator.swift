@@ -2,17 +2,28 @@ import CoreImage
 import CoreML
 import Vision
 
-/// Both the texture and this field cover the entire EXIF-oriented image.
+struct PhotoDepthEstimate {
+    let depth: CIImage?
+    let foregroundMask: CIImage?
+}
+
 struct PhotoDepthEstimator {
     let context: CIContext
 
-    func depth(for image: CIImage) -> CIImage? {
+    func estimate(for image: CIImage) -> PhotoDepthEstimate {
 #if compiler(>=5.9)
-        if #available(iOS 17.0, *), let model = Self.model {
-            if let field = try? inferredDepth(for: image, model: model) { return field }
+        if #available(iOS 17.0, *) {
+            let mask = try? foregroundInstanceMask(for: image)
+            let depth = Self.model.flatMap { try? inferredDepth(for: image, model: $0) } ?? mask
+            return PhotoDepthEstimate(depth: depth, foregroundMask: mask)
         }
 #endif
-        return try? subjectDepth(for: image)
+        let mask = try? personMask(for: image)
+        return PhotoDepthEstimate(depth: mask, foregroundMask: mask)
+    }
+
+    func depth(for image: CIImage) -> CIImage? {
+        estimate(for: image).depth
     }
 
 #if compiler(>=5.9)
@@ -48,33 +59,45 @@ struct PhotoDepthEstimator {
     }
 #endif
 
-    private func subjectDepth(for image: CIImage) throws -> CIImage? {
+    private func personMask(for image: CIImage) throws -> CIImage? {
         let handler = VNImageRequestHandler(ciImage: image)
-        let buffer: CVPixelBuffer
 #if swift(>=5.9)
-        if #available(iOS 17.0, *) {
-            let request = VNGenerateForegroundInstanceMaskRequest()
-            try handler.perform([request])
-            guard let result = request.results?.first, !result.allInstances.isEmpty else { return nil }
-            buffer = try result.generateScaledMaskForImage(forInstances: result.allInstances, from: handler)
-        } else {
-            guard let people = try personMask(handler) else { return nil }
-            buffer = people
-        }
+        guard let people = try personMaskRequest(handler) else { return nil }
 #else
-        guard let people = try personMask(handler) else { return nil }
-        buffer = people
+        guard let people = try personMaskRequest(handler) else { return nil }
 #endif
-        let mask = CIImage(cvPixelBuffer: buffer, options: [.colorSpace: NSNull()])
-        return mask.transformed(by: CGAffineTransform(scaleX: image.extent.width / mask.extent.width,
-                                                      y: image.extent.height / mask.extent.height))
+        let mask = CIImage(cvPixelBuffer: people, options: [.colorSpace: NSNull()])
+        return Self.normalize(mask, to: image.extent)
     }
 
-    private func personMask(_ handler: VNImageRequestHandler) throws -> CVPixelBuffer? {
+    private func personMaskRequest(_ handler: VNImageRequestHandler) throws -> CVPixelBuffer? {
         let request = VNGeneratePersonSegmentationRequest()
         request.qualityLevel = .balanced
         request.outputPixelFormat = kCVPixelFormatType_OneComponent8
         try handler.perform([request])
         return request.results?.first?.pixelBuffer
+    }
+
+#if compiler(>=5.9)
+    @available(iOS 17.0, *)
+    private func foregroundInstanceMask(for image: CIImage) throws -> CIImage? {
+        let handler = VNImageRequestHandler(ciImage: image)
+        let request = VNGenerateForegroundInstanceMaskRequest()
+        try handler.perform([request])
+        guard let result = request.results?.first, !result.allInstances.isEmpty else { return nil }
+        let buffer = try result.generateScaledMaskForImage(forInstances: result.allInstances, from: handler)
+        return Self.normalize(CIImage(cvPixelBuffer: buffer, options: [.colorSpace: NSNull()]), to: image.extent)
+    }
+#endif
+
+    private static func normalize(_ mask: CIImage, to extent: CGRect) -> CIImage {
+        let scaleX = extent.width / mask.extent.width
+        let scaleY = extent.height / mask.extent.height
+        let scaled = mask.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+        let translated = scaled.transformed(by: CGAffineTransform(
+            translationX: extent.midX - scaled.extent.midX,
+            y: extent.midY - scaled.extent.midY
+        ))
+        return translated.cropped(to: extent)
     }
 }

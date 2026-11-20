@@ -30,15 +30,20 @@ public final class FloatingPhotoScene: ObservableObject {
             phase = .processing
             let configuration = configuration
             task = Task.detached(priority: .userInitiated) {
-                let depth = PhotoDepthEstimator(context: FloatingPhotoRenderer.context).depth(for: source)
-                return FloatingPhotoRenderer(source: source, depth: depth, configuration: configuration)
+                let estimate = PhotoDepthEstimator(context: FloatingPhotoRenderer.context).estimate(for: source)
+                return FloatingPhotoRenderer(
+                    source: source,
+                    depth: estimate.depth,
+                    foregroundMask: estimate.foregroundMask,
+                    configuration: configuration
+                )
             }
             preparation = task
         }
         let result = await task.value
         guard phase == .processing else { return }
         renderer = result
-        phase = result.surface.hasDepth && result.device != nil ? .ready : .degraded
+        phase = (result.surface.hasDepth || result.surface.hasForegroundMask) && result.device != nil ? .ready : .degraded
         preparation = nil
     }
 

@@ -20,5 +20,6 @@ final class FloatingPhotoConfigurationTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(configuration.backgroundScale, 1)
         XCTAssertEqual(configuration.foregroundDepth, 0)
         XCTAssertEqual(configuration.backgroundDepth, 0)
+        XCTAssertEqual(configuration.edgeFogOpacity, 0)
     }
 }
