@@ -1,174 +1,147 @@
 import AVFoundation
 import CoreImage
-import CoreVideo
-import Foundation
-import UIKit
+import MetalKit
 
-struct FloatingPhotoRenderer {
-    let layers: FloatingPhotoLayers
+/// Preview and movie frames project the same mesh and sample the same single photo texture.
+final class FloatingPhotoRenderer {
+    static let context = CIContext(options: [.cacheIntermediates: false])
+    private static let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
+    let surface: PhotoSurface
     let configuration: FloatingPhotoConfiguration
+    private let source: CIImage
+    private let drawing: Drawing?
+    var device: MTLDevice? { drawing?.gpu.device }
 
-    func render(
-        at normalizedOffset: CGSize,
-        canvasSize: CGSize
-    ) -> CIImage {
-        let offset = CGSize(
-            width: max(-1, min(1, normalizedOffset.width)),
-            height: max(-1, min(1, normalizedOffset.height))
-        )
-        let target = CGRect(origin: .zero, size: canvasSize)
-
-        let originalBackground = layers.background
-            .transformedToFill(target, additionalScale: configuration.backgroundScale)
-            .transformed(by: CGAffineTransform(
-                translationX: offset.width * configuration.backgroundDepth * canvasSize.width,
-                y: -offset.height * configuration.backgroundDepth * canvasSize.height
-            ))
-
-        let softenedBackground = layers.backgroundBlurred
-            .transformedToFill(target, additionalScale: configuration.backgroundScale)
-            .transformed(by: CGAffineTransform(
-                translationX: offset.width * configuration.backgroundDepth * canvasSize.width,
-                y: -offset.height * configuration.backgroundDepth * canvasSize.height
-            ))
-            .withAlpha(configuration.backgroundBlurOpacity)
-
-        let background = softenedBackground
-            .composited(over: originalBackground)
-            .cropped(to: target)
-
-        guard let foreground = layers.foreground else {
-            return background
-        }
-
-        let movedForeground = foreground
-            .transformedToFill(target)
-            .transformed(by: CGAffineTransform(
-                translationX: offset.width * configuration.foregroundDepth * canvasSize.width,
-                y: -offset.height * configuration.foregroundDepth * canvasSize.height
-            ))
-
-        return movedForeground.composited(over: background).cropped(to: target)
+    init(source: CIImage, depth: CIImage?, configuration: FloatingPhotoConfiguration) {
+        self.source = source
+        self.configuration = configuration
+        let surface = PhotoSurface(imageSize: source.extent.size, depth: depth, configuration: configuration, context: Self.context)
+        self.surface = surface
+        self.drawing = Drawing(source: source, surface: surface)
     }
 
-    func exportVideo(
-        to url: URL,
-        size: CGSize,
-        duration: TimeInterval,
-        frameRate: Int32
-    ) async throws {
-        try? FileManager.default.removeItem(at: url)
+    private struct GPU {
+        let device: MTLDevice
+        let queue: MTLCommandQueue
+        let pipeline: MTLRenderPipelineState
 
-        guard let writer = try? AVAssetWriter(outputURL: url, fileType: .mp4) else {
-            throw FloatingPhotoError.exportFailed
+        static let shared = GPU()
+
+        init?() {
+            guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue(),
+                  let url = Bundle.module.url(forResource: "PhotoSurface", withExtension: "metal"),
+                  let source = try? String(contentsOf: url, encoding: .utf8),
+                  let library = try? device.makeLibrary(source: source, options: nil) else { return nil }
+            let descriptor = MTLRenderPipelineDescriptor()
+            descriptor.vertexFunction = library.makeFunction(name: "projectPhoto")
+            descriptor.fragmentFunction = library.makeFunction(name: "samplePhoto")
+            descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+            guard let pipeline = try? device.makeRenderPipelineState(descriptor: descriptor) else { return nil }
+            self.device = device
+            self.queue = queue
+            self.pipeline = pipeline
         }
+    }
 
-        let settings: [String: Any] = [
-            AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: Int(size.width),
-            AVVideoHeightKey: Int(size.height),
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: Int(size.width * size.height * 4),
-                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
-            ]
-        ]
+    private struct Drawing {
+        let gpu: GPU
+        let photo: MTLTexture
+        let vertices: MTLBuffer
+        let indices: MTLBuffer
 
+        init?(source: CIImage, surface: PhotoSurface) {
+            guard let gpu = GPU.shared else { return nil }
+            let scale = min(1, 4096 / max(source.extent.width, source.extent.height))
+            let scaled = source.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            // Use the exact photo bounds even when downsampling would produce a fractional last pixel.
+            let bounds = CGRect(x: 0, y: 0, width: max(1, scaled.extent.width.rounded()), height: max(1, scaled.extent.height.rounded()))
+            let pixels = source.transformed(by: CGAffineTransform(scaleX: bounds.width / source.extent.width,
+                                                                  y: bounds.height / source.extent.height))
+            guard let image = context.createCGImage(pixels, from: bounds, format: .RGBA8, colorSpace: sRGB),
+                  let photo = try? MTKTextureLoader(device: gpu.device).newTexture(cgImage: image, options: [
+                    .origin: MTKTextureLoader.Origin.topLeft, .SRGB: false
+                  ]),
+                  let vertices = gpu.device.makeBuffer(bytes: surface.vertices, length: surface.vertices.count * MemoryLayout<SIMD4<Float>>.stride),
+                  let indices = gpu.device.makeBuffer(bytes: surface.indices, length: surface.indices.count * MemoryLayout<UInt16>.stride) else { return nil }
+            self.gpu = gpu
+            self.photo = photo
+            self.vertices = vertices
+            self.indices = indices
+        }
+    }
+
+    /// The caller presents or waits on this command buffer after encoding.
+    func frame(at offset: CGSize, into target: MTLTexture) -> MTLCommandBuffer? {
+        guard let drawing, let commands = drawing.gpu.queue.makeCommandBuffer() else { return nil }
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = target
+        pass.colorAttachments[0].loadAction = .clear
+        pass.colorAttachments[0].storeAction = .store
+        guard let encoder = commands.makeRenderCommandEncoder(descriptor: pass) else { return nil }
+        var camera = surface.camera(at: offset, canvas: CGSize(width: target.width, height: target.height), configuration: configuration)
+        encoder.setRenderPipelineState(drawing.gpu.pipeline)
+        encoder.setVertexBuffer(drawing.vertices, offset: 0, index: 0)
+        encoder.setVertexBytes(&camera, length: MemoryLayout.size(ofValue: camera), index: 1)
+        encoder.setFragmentTexture(drawing.photo, index: 0)
+        encoder.drawIndexedPrimitives(type: .triangle, indexCount: surface.indices.count, indexType: .uint16, indexBuffer: drawing.indices, indexBufferOffset: 0)
+        encoder.endEncoding()
+        return commands
+    }
+
+    func exportVideo(to url: URL, size: CGSize, duration: TimeInterval, frameRate: Int32) async throws {
+        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+        let width = Int(size.width), height = Int(size.height)
+        let settings: [String: Any] = [AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: width, AVVideoHeightKey: height]
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
-        input.expectsMediaDataInRealTime = false
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
-            assetWriterInput: input,
-            sourcePixelBufferAttributes: [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                kCVPixelBufferWidthKey as String: Int(size.width),
-                kCVPixelBufferHeightKey as String: Int(size.height)
-            ]
-        )
-
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: height,
+            kCVPixelBufferMetalCompatibilityKey as String: true, kCVPixelBufferIOSurfacePropertiesKey as String: [:]
+        ])
         guard writer.canAdd(input) else { throw FloatingPhotoError.exportFailed }
         writer.add(input)
-        guard writer.startWriting() else { throw FloatingPhotoError.exportFailed }
+        guard writer.startWriting() else { throw writer.error ?? FloatingPhotoError.exportFailed }
+        defer { if writer.status == .writing { writer.cancelWriting() } }
         writer.startSession(atSourceTime: .zero)
-
-        let context = CIContext()
-        let frameCount = Int((duration * Double(frameRate)).rounded(.up))
-        let frameDuration = CMTime(value: 1, timescale: frameRate)
-
-        for frame in 0..<frameCount {
+        var cache: CVMetalTextureCache?
+        if let device, CVMetalTextureCacheCreate(nil, nil, device, nil, &cache) != kCVReturnSuccess { throw FloatingPhotoError.exportFailed }
+        guard let pool = adaptor.pixelBufferPool else { throw FloatingPhotoError.exportFailed }
+        let frameCount = Int(ceil(duration * Double(frameRate)))
+        for index in 0..<frameCount {
+            try Task.checkCancellation()
             while !input.isReadyForMoreMediaData {
+                guard writer.status == .writing else { throw writer.error ?? FloatingPhotoError.exportFailed }
                 try await Task.sleep(nanoseconds: 2_000_000)
             }
-
-            let progress = frameCount <= 1 ? 0 : Double(frame) / Double(frameCount - 1)
-            let phase = progress < 0.5 ? progress * 2 : (1 - progress) * 2
-            let angle = phase * 2 - 1
-            let image = render(
-                at: CGSize(
-                    width: CGFloat(angle) * configuration.intensity,
-                    height: CGFloat(sin(progress * .pi * 2)) * configuration.intensity
-                ),
-                canvasSize: size
-            )
-
-            guard let buffer = makePixelBuffer(size: size) else {
-                input.markAsFinished()
-                writer.cancelWriting()
-                throw FloatingPhotoError.exportFailed
-            }
-
-            context.render(image, to: buffer)
-            let time = CMTimeMultiply(frameDuration, multiplier: Int32(frame))
-            guard adaptor.append(buffer, withPresentationTime: time) else {
-                input.markAsFinished()
-                writer.cancelWriting()
-                throw FloatingPhotoError.exportFailed
+            let angle = 2 * Double.pi * Double(index) / Double(max(1, frameCount - 1))
+            let offset = CGSize(width: sin(angle), height: 0.3 * sin(2 * angle))
+            var buffer: CVPixelBuffer?
+            guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer) == kCVReturnSuccess, let buffer else { throw FloatingPhotoError.exportFailed }
+            try render(at: offset, into: buffer, cache: cache)
+            guard adaptor.append(buffer, withPresentationTime: CMTime(value: Int64(index), timescale: frameRate)) else {
+                throw writer.error ?? FloatingPhotoError.exportFailed
             }
         }
-
         input.markAsFinished()
-        await withCheckedContinuation { continuation in
-            writer.finishWriting {
-                continuation.resume()
-            }
+        await withCheckedContinuation { continuation in writer.finishWriting { continuation.resume() } }
+        guard writer.status == .completed else { throw writer.error ?? FloatingPhotoError.exportFailed }
+    }
+
+    private func render(at offset: CGSize, into buffer: CVPixelBuffer, cache: CVMetalTextureCache?) throws {
+        let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
+        if let cache {
+            var backing: CVMetalTexture?
+            guard CVMetalTextureCacheCreateTextureFromImage(nil, cache, buffer, nil, .bgra8Unorm, width, height, 0, &backing) == kCVReturnSuccess,
+                  let backing, let target = CVMetalTextureGetTexture(backing), let commands = frame(at: offset, into: target) else { throw FloatingPhotoError.exportFailed }
+            commands.commit()
+            withExtendedLifetime(backing) { commands.waitUntilCompleted() }
+            if commands.status != .completed { throw commands.error ?? FloatingPhotoError.exportFailed }
+        } else {
+            let bounds = CGRect(x: 0, y: 0, width: width, height: height)
+            let fit = max(bounds.width / source.extent.width, bounds.height / source.extent.height) * max(1, configuration.backgroundScale)
+            let transform = CGAffineTransform(a: fit, b: 0, c: 0, d: fit, tx: bounds.midX - source.extent.midX * fit, ty: bounds.midY - source.extent.midY * fit)
+            Self.context.render(source.transformed(by: transform), to: buffer, bounds: bounds, colorSpace: Self.sRGB)
         }
-
-        guard writer.status == .completed else {
-            throw writer.error ?? FloatingPhotoError.exportFailed
-        }
-    }
-
-    private func makePixelBuffer(size: CGSize) -> CVPixelBuffer? {
-        var buffer: CVPixelBuffer?
-        let attributes: [CFString: Any] = [
-            kCVPixelBufferCGImageCompatibilityKey: true,
-            kCVPixelBufferCGBitmapContextCompatibilityKey: true,
-            kCVPixelBufferWidthKey: Int(size.width),
-            kCVPixelBufferHeightKey: Int(size.height),
-            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA
-        ]
-        CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            Int(size.width),
-            Int(size.height),
-            kCVPixelFormatType_32BGRA,
-            attributes as CFDictionary,
-            &buffer
-        )
-        return buffer
-    }
-}
-
-private extension CIImage {
-    func withAlpha(_ alpha: CGFloat) -> CIImage {
-        applyingFilter("CIColorMatrix", parameters: [
-            "inputAVector": CIVector(x: 0, y: 0, z: 0, w: alpha)
-        ])
-    }
-
-    func transformedToFill(_ target: CGRect, additionalScale: CGFloat = 1) -> CIImage {
-        let scale = max(target.width / extent.width, target.height / extent.height) * additionalScale
-        let scaled = transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        let x = target.midX - scaled.extent.midX
-        let y = target.midY - scaled.extent.midY
-        return scaled.transformed(by: CGAffineTransform(translationX: x, y: y))
     }
 }

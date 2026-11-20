@@ -6,6 +6,7 @@ final class FloatingPhotoConfigurationTests: XCTestCase {
         let configuration = FloatingPhotoConfiguration(
             intensity: -1,
             maximumTilt: 0,
+            motionSensitivity: -1,
             backgroundBlur: -2,
             backgroundScale: 0,
             foregroundDepth: -1,
@@ -14,6 +15,7 @@ final class FloatingPhotoConfigurationTests: XCTestCase {
 
         XCTAssertEqual(configuration.intensity, 0)
         XCTAssertGreaterThan(configuration.maximumTilt, 0)
+        XCTAssertEqual(configuration.motionSensitivity, 0)
         XCTAssertEqual(configuration.backgroundBlur, 0)
         XCTAssertGreaterThanOrEqual(configuration.backgroundScale, 1)
         XCTAssertEqual(configuration.foregroundDepth, 0)

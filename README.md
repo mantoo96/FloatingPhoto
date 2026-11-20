@@ -1,41 +1,37 @@
 # FloatingPhoto
 
-A SwiftUI-first iOS package that turns an ordinary photo into a bounded motion-parallax scene.
-
-FloatingPhoto uses Apple Vision to lift subjects, Core Motion to read device tilt, and AVFoundation to export the same effect as an MP4 video. On iOS 17 and later it uses foreground instance masks for people, pets, and other noticeable objects. On iOS 15 and 16 it uses Vision's person-segmentation request and safely falls back to a whole-image motion effect for non-person photos. It is deliberately a 2.5D effect with a safe motion range, not a promise of full 3D reconstruction.
-
-## Requirements
-
-- iOS 15+
-- Swift 5.7+
-- Xcode 14+
-- Swift Package Manager
+Turn an ordinary photo into a SwiftUI card with motion parallax. When the phone tilts, nearby details shift against distant ones. Photos are processed on the device.
 
 ## Quick start
 
+Add the `FloatingPhoto` product with Swift Package Manager. The library targets iOS 15 and Swift 5.7 or later.
+
 ```swift
 import FloatingPhoto
-import PhotosUI
 import SwiftUI
 
-struct ContentView: View {
+struct PhotoCard: View {
     let photo: UIImage
 
     var body: some View {
-        FloatingPhotoView(
-            image: photo,
-            configuration: .init(
-                intensity: 0.55,
-                maximumTilt: 0.22,
-                backgroundBlur: 5,
-                backgroundBlurOpacity: 0.22
-            )
-        )
-        .aspectRatio(3 / 4, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 24))
+        FloatingPhotoView(image: photo)
+            .aspectRatio(3 / 4, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 24))
     }
 }
 ```
+
+The first handheld position is the center of the effect. `configuration: .subtle` reduces travel. `motionSensitivity` adjusts how quickly a small tilt reaches the configured travel limit. `motion: .staticOffset(x: 1, y: 0)` previews a fixed camera position. Both inputs use the same travel limits. The interactive view honors Reduce Motion.
+
+## How it works
+
+`FloatingPhotoScene` estimates depth once per photo. Metal maps the original photo onto a continuous surface. At neutral the original crop is preserved. Tilting moves points according to their relative depth. The photo boundary stays fixed and the camera limits travel at steep depth changes to keep the surface continuous. A narrow strip near an occlusion can stretch under tilt because one photo only contains the visible side of the scene.
+
+- On iOS 17 and later, builds made with Xcode 15 or later include the **19 MB Depth Anything V2 Small** Core ML model by Lihe Yang et al., converted by Apple. It estimates depth throughout the scene. If inference fails, Vision can supply a foreground mask as an approximate depth field.
+- iOS 15–16 and Xcode 14 builds use Vision person segmentation. When the depth field is unavailable or flat, the scene uses gentle whole-photo motion. When Metal is unavailable, it displays the still photo.
+- `foregroundDepth` and `backgroundDepth` weight near and far motion. `backgroundScale` is a centered crop of the complete photo. The existing `backgroundBlur` and `backgroundBlurOpacity` parameters now soften transitions in the depth field. Image detail stays sharp.
+
+The model is distributed under Apache License 2.0. [Apple Core ML model catalog](https://developer.apple.com/machine-learning/models/) · [Depth Anything V2 authors](https://github.com/DepthAnything/Depth-Anything-V2) · [Bundled model license](Sources/FloatingPhoto/Resources/DepthAnything-LICENSE.txt)
 
 ## Video export
 
@@ -49,21 +45,4 @@ try await scene.exportVideo(
 )
 ```
 
-## Design decisions
-
-- `FloatingPhotoView` is the zero-configuration entry point.
-- `FloatingPhotoScene` is the reusable processing and export object.
-- Segmentation failure degrades to a gentle whole-image result so a user can still complete their flow.
-- The exported animation uses the same renderer concept as the interactive preview.
-- The package keeps the API small and leaves PhotosPicker, navigation, persistence, and sharing to the host app.
-
-## Compatibility
-
-- iOS 17 and later use foreground instance masks for people, pets, and other noticeable objects when built with an iOS 17 SDK.
-- iOS 15 and 16 use person segmentation. Non-person images use the whole-image fallback when a subject mask is unavailable.
-- Swift 5.7 and Xcode 14 can build the iOS 15 fallback path. Swift 5.9 and Xcode 15 or later enable the iOS 17 foreground-instance path.
-- The library itself starts at iOS 15. The included picker demo uses PhotosPicker on iOS 16 and later.
-
-## Current scope
-
-The package uses a subject layer over a repaired-looking blurred background. It does not reconstruct hidden geometry or guarantee clean results for large camera movements. The motion range is intentionally bounded.
+The MP4 follows a short camera path through the same renderer as the live view, starting and ending at the original composition. The [picker demo](Demo/FloatingPhotoDemo/README.md) runs on iOS 16 or later.

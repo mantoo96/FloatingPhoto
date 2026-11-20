@@ -6,7 +6,7 @@ Turn an ordinary photo into a bounded motion-parallax scene with a SwiftUI view.
 
 `FloatingPhotoView` is the fast path for showing a scene. `FloatingPhotoScene` is useful when the host app needs to prepare once and export the result as a video.
 
-The package uses foreground instance masks on iOS 17 and later. On iOS 15 and 16 it uses Vision's person-segmentation request. If segmentation is unavailable or produces no usable result, the scene falls back to a gentle whole-image animation.
+On iOS 17 and later, modern toolchains bundle a Core ML model that estimates relative depth. The interactive view and video exporter project one textured surface through the same camera. Earlier systems use a Vision person mask as a depth estimate. Unusable depth falls back to gentle whole-photo motion.
 
 ## Topics
 

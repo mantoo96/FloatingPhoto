@@ -1,4 +1,3 @@
-import CoreGraphics
 import CoreImage
 import ImageIO
 import UIKit
@@ -21,32 +20,10 @@ extension UIImage.Orientation {
 
 extension UIImage {
     func floatingPhotoCIImage() -> CIImage? {
-        guard let input = CIImage(image: self) else { return nil }
-        return input.oriented(imageOrientation.cgImagePropertyOrientation)
-    }
-}
-
-extension FloatingPhotoLayers {
-    @MainActor
-    func makePreviewLayers() -> FloatingPhotoPreviewLayers? {
-        let context = CIContext(options: [.workingColorSpace: NSNull()])
-        guard
-            let backgroundCGImage = context.createCGImage(background, from: background.extent),
-            let blurredCGImage = context.createCGImage(backgroundBlurred, from: backgroundBlurred.extent)
-        else {
-            return nil
-        }
-
-        let foregroundImage = foreground.flatMap { image in
-            context.createCGImage(image, from: image.extent).map {
-                UIImage(cgImage: $0, scale: 1, orientation: .up)
-            }
-        }
-
-        return FloatingPhotoPreviewLayers(
-            background: UIImage(cgImage: backgroundCGImage, scale: 1, orientation: .up),
-            backgroundBlurred: UIImage(cgImage: blurredCGImage, scale: 1, orientation: .up),
-            foreground: foregroundImage
-        )
+        guard let pixels = ciImage ?? cgImage.map({ CIImage(cgImage: $0) }) else { return nil }
+        let upright = pixels.oriented(imageOrientation.cgImagePropertyOrientation)
+        let bounds = upright.extent
+        guard !bounds.isEmpty, !bounds.isInfinite, bounds.width.isFinite, bounds.height.isFinite else { return nil }
+        return upright.transformed(by: CGAffineTransform(translationX: -bounds.minX, y: -bounds.minY))
     }
 }

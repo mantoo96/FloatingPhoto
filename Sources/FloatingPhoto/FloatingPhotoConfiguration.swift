@@ -5,25 +5,31 @@ import Foundation
 public struct FloatingPhotoConfiguration: Sendable, Hashable {
     public var intensity: CGFloat
     public var maximumTilt: CGFloat
+    /// Multiplies sub-limit device tilt before the visual travel is capped.
+    public var motionSensitivity: CGFloat
+    /// Softens transitions in the depth field, in combination with `backgroundBlurOpacity`.
     public var backgroundBlur: CGFloat
     public var backgroundBlurOpacity: CGFloat
+    /// The centered crop applied to the whole scene at every camera position.
     public var backgroundScale: CGFloat
     public var foregroundDepth: CGFloat
     public var backgroundDepth: CGFloat
     public var allowsDeviceMotion: Bool
 
     public init(
-        intensity: CGFloat = 0.55,
-        maximumTilt: CGFloat = 0.22,
+        intensity: CGFloat = 0.8,
+        maximumTilt: CGFloat = 0.35,
+        motionSensitivity: CGFloat = 1.1,
         backgroundBlur: CGFloat = 5,
         backgroundBlurOpacity: CGFloat = 0.22,
-        backgroundScale: CGFloat = 1.06,
-        foregroundDepth: CGFloat = 1.15,
-        backgroundDepth: CGFloat = 0.04,
+        backgroundScale: CGFloat = 1,
+        foregroundDepth: CGFloat = 0.48,
+        backgroundDepth: CGFloat = 0.64,
         allowsDeviceMotion: Bool = true
     ) {
         self.intensity = max(0, intensity)
         self.maximumTilt = max(0.01, maximumTilt)
+        self.motionSensitivity = max(0, motionSensitivity)
         self.backgroundBlur = max(0, backgroundBlur)
         self.backgroundBlurOpacity = min(1, max(0, backgroundBlurOpacity))
         self.backgroundScale = max(1, backgroundScale)
@@ -39,9 +45,9 @@ public struct FloatingPhotoConfiguration: Sendable, Hashable {
         maximumTilt: 0.25,
         backgroundBlur: 6,
         backgroundBlurOpacity: 0.18,
-        backgroundScale: 1.04,
-        foregroundDepth: 0.8,
-        backgroundDepth: 0.03
+        backgroundScale: 1,
+        foregroundDepth: 0.48,
+        backgroundDepth: 0.64
     )
 }
 

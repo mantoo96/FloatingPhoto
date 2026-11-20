@@ -1,6 +1,5 @@
 import Combine
 import CoreImage
-import Foundation
 import UIKit
 
 /// A prepared image and its motion-parallax rendering configuration.
@@ -8,81 +7,46 @@ import UIKit
 public final class FloatingPhotoScene: ObservableObject {
     public let image: UIImage
     public let configuration: FloatingPhotoConfiguration
-
     @Published public private(set) var phase: FloatingPhotoPhase = .idle
+    private(set) var renderer: FloatingPhotoRenderer?
+    private var preparation: Task<FloatingPhotoRenderer, Never>?
 
-    var layers: FloatingPhotoLayers?
-    var previewLayers: FloatingPhotoPreviewLayers?
-
-    private let segmenter = SubjectSegmenter()
-
-    public init(
-        image: UIImage,
-        configuration: FloatingPhotoConfiguration = .default
-    ) {
+    public init(image: UIImage, configuration: FloatingPhotoConfiguration = .default) {
         self.image = image
         self.configuration = configuration
     }
 
-    /// Performs subject lifting in the background and keeps a usable fallback if it fails.
+    /// Estimates relative depth once, sharing the result across concurrent calls.
     public func prepare() async {
-        guard phase == .idle else { return }
-        phase = .processing
-
-        guard let source = image.floatingPhotoCIImage() else {
-            phase = .failed
-            return
-        }
-
-        let configuration = configuration
-        let segmenter = segmenter
-        let result: FloatingPhotoLayers? = await Task.detached(priority: .userInitiated) {
-            do {
-                return try segmenter.makeLayers(from: source, configuration: configuration)
-            } catch {
-                return nil
-            }
-        }.value
-
-        let preparedLayers: FloatingPhotoLayers
-        if let result {
-            preparedLayers = result
-            phase = .ready
+        let task: Task<FloatingPhotoRenderer, Never>
+        if let preparation {
+            task = preparation
         } else {
-            preparedLayers = FloatingPhotoLayers(
-                background: source,
-                backgroundBlurred: source,
-                foreground: nil,
-                extent: source.extent
-            )
-            phase = .degraded
+            guard phase == .idle else { return }
+            guard let source = image.floatingPhotoCIImage() else {
+                phase = .failed
+                return
+            }
+            phase = .processing
+            let configuration = configuration
+            task = Task.detached(priority: .userInitiated) {
+                let depth = PhotoDepthEstimator(context: FloatingPhotoRenderer.context).depth(for: source)
+                return FloatingPhotoRenderer(source: source, depth: depth, configuration: configuration)
+            }
+            preparation = task
         }
-
-        layers = preparedLayers
-        previewLayers = preparedLayers.makePreviewLayers()
+        let result = await task.value
+        guard phase == .processing else { return }
+        renderer = result
+        phase = result.surface.hasDepth && result.device != nil ? .ready : .degraded
+        preparation = nil
     }
 
-    /// Exports the same 2.5D scene shown by `FloatingPhotoView`.
-    public func exportVideo(
-        to url: URL,
-        size: CGSize,
-        duration: TimeInterval = 4,
-        frameRate: Int32 = 30
-    ) async throws {
-        guard layers != nil else { throw FloatingPhotoError.sceneNotPrepared }
-        guard size.width > 0, size.height > 0, duration > 0, frameRate > 0 else {
-            throw FloatingPhotoError.unsupportedVideoSize
-        }
-
-        let renderer = FloatingPhotoRenderer(
-            layers: layers!,
-            configuration: configuration
-        )
-        try await renderer.exportVideo(
-            to: url,
-            size: size,
-            duration: duration,
-            frameRate: frameRate
-        )
+    /// Exports the scene using the preview's camera and geometry.
+    public func exportVideo(to url: URL, size: CGSize, duration: TimeInterval = 4, frameRate: Int32 = 30) async throws {
+        guard let renderer else { throw FloatingPhotoError.sceneNotPrepared }
+        guard size.width.isFinite, size.height.isFinite, size.width >= 1, size.height >= 1,
+              duration.isFinite, duration > 0, frameRate > 0 else { throw FloatingPhotoError.unsupportedVideoSize }
+        try await renderer.exportVideo(to: url, size: size, duration: duration, frameRate: frameRate)
     }
 }

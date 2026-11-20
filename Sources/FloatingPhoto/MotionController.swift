@@ -1,50 +1,76 @@
 import Combine
 import CoreMotion
-import Foundation
+import simd
+
+struct PhotoTilt {
+    private static let responseTime: TimeInterval = 0.04
+    private var reference: simd_quatd?
+    private var previousTime: TimeInterval?
+    private var filtered = SIMD2<Double>.zero
+
+    mutating func sample(
+        _ attitude: simd_quatd,
+        time: TimeInterval,
+        maximumTilt: CGFloat,
+        motionSensitivity: CGFloat = 1.1
+    ) -> CGSize {
+        guard let reference, let previousTime else {
+            reference = attitude
+            previousTime = time
+            return .zero
+        }
+        self.previousTime = time
+        // The opening viewing direction expressed in the current device axes also handles rotation into landscape.
+        let normal = (attitude.inverse * reference).act(SIMD3(0, 0, 1))
+        var raw = SIMD2(-atan2(normal.x, normal.z), atan2(normal.y, normal.z))
+        let magnitude = simd_length(raw)
+        let limit = max(0.01, Double(maximumTilt))
+        let deadZone = min(0.025, limit * 0.2)
+        if magnitude > deadZone {
+            let normalizedMagnitude = min(
+                1,
+                (magnitude - deadZone) / (limit - deadZone) * Double(max(0, motionSensitivity))
+            )
+            raw *= normalizedMagnitude / magnitude
+        } else {
+            raw = .zero
+        }
+        let weight = 1 - exp(-max(0, time - previousTime) / Self.responseTime)
+        filtered += (raw - filtered) * weight
+        if simd_distance(filtered, raw) < 0.0005 { filtered = raw }
+        return CGSize(width: filtered.x, height: filtered.y)
+    }
+}
 
 @MainActor
 final class FloatingPhotoMotionController: ObservableObject {
     @Published private(set) var offset = CGSize.zero
-
     private let manager = CMMotionManager()
     private let configuration: FloatingPhotoConfiguration
-    private var filteredX = CGFloat.zero
-    private var filteredY = CGFloat.zero
+    private var tilt = PhotoTilt()
 
-    init(configuration: FloatingPhotoConfiguration) {
-        self.configuration = configuration
-    }
+    init(configuration: FloatingPhotoConfiguration) { self.configuration = configuration }
 
     func start() {
-        guard configuration.allowsDeviceMotion, manager.isDeviceMotionAvailable else { return }
-        manager.deviceMotionUpdateInterval = 1.0 / 60.0
+        guard configuration.allowsDeviceMotion, manager.isDeviceMotionAvailable, !manager.isDeviceMotionActive else { return }
+        tilt = PhotoTilt()
+        manager.deviceMotionUpdateInterval = 1.0 / 60
         manager.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: .main) { [weak self] motion, _ in
-            guard let self, let motion else { return }
-
-            let rawX = self.deadZone(
-                max(-1, min(1, motion.attitude.roll / self.configuration.maximumTilt))
+            guard let self, let motion, self.manager.isDeviceMotionActive else { return }
+            let q = motion.attitude.quaternion
+            let sample = self.tilt.sample(
+                simd_quatd(ix: q.x, iy: q.y, iz: q.z, r: q.w),
+                time: motion.timestamp,
+                maximumTilt: self.configuration.maximumTilt,
+                motionSensitivity: self.configuration.motionSensitivity
             )
-            let rawY = self.deadZone(
-                max(-1, min(1, motion.attitude.pitch / self.configuration.maximumTilt))
-            )
-
-            self.filteredX += (rawX - self.filteredX) * 0.08
-            self.filteredY += (rawY - self.filteredY) * 0.08
-            self.offset = CGSize(
-                width: self.filteredX * self.configuration.intensity,
-                height: self.filteredY * self.configuration.intensity
-            )
+            if self.offset != sample { self.offset = sample }
         }
     }
 
     func stop() {
         manager.stopDeviceMotionUpdates()
-    }
-
-    private func deadZone(_ value: CGFloat) -> CGFloat {
-        let threshold: CGFloat = 0.045
-        guard abs(value) > threshold else { return 0 }
-        let sign: CGFloat = value < 0 ? -1 : 1
-        return sign * (abs(value) - threshold) / (1 - threshold)
+        tilt = PhotoTilt()
+        if offset != .zero { offset = .zero }
     }
 }
