@@ -25,11 +25,11 @@ The first handheld position is the center of the effect. `configuration: .subtle
 
 ## How it works
 
-On iOS 17 and later, Vision's foreground instance mask extracts the noticeable subject. On iOS 15 and 16, the library uses Vision person segmentation. The background becomes a cleaned photo plate with the extracted subject area softly filled. The extracted subject moves independently over that plate, so the scene produces relative depth without leaving a sharp duplicate behind. A low-opacity white haze softly blends the contact edge.
+On iOS 17 and later, Vision's foreground instance mask helps identify a usable subject fallback, while Depth Anything supplies a continuous relative-depth field. On iOS 15 and 16, Vision person segmentation remains available when no model depth is present. The renderer samples the original photo through one continuous depth surface, so nearby and distant regions move by different amounts without compositing a separate foreground sticker.
 
-The default scene uses translations for the cleaned background plate and foreground subject. This keeps background texture stable while the subject supplies most of the depth cue. A small centered crop leaves room for the bounded movement. If extraction is unavailable, the library keeps the complete photo and degrades to a simpler motion result.
+The Metal renderer uses a full-screen relief pass with bounded depth travel and a centered crop. It samples the same photo texture at every pixel, so the subject and background stay fused while their apparent positions change by depth. If depth extraction is unavailable, the library uses the foreground mask as a coarse depth field and degrades to a simpler parallax result.
 
-The bundled Depth Anything V2 Small Core ML model remains available for relative-depth estimation and compatibility with the package's depth surface utilities. The live card uses the subject mask for the two-layer composition so background pixels do not receive a mesh warp. The model is distributed under Apache License 2.0. [Apple Core ML model catalog](https://developer.apple.com/machine-learning/models/) · [Depth Anything V2 authors](https://github.com/DepthAnything/Depth-Anything-V2) · [Bundled model license](Sources/FloatingPhoto/Resources/DepthAnything-LICENSE.txt)
+The bundled Depth Anything V2 Small Core ML model supplies the relative-depth field when the device supports it. The iOS 15 and 16 path keeps Vision person segmentation as a coarse depth fallback. The model is distributed under Apache License 2.0. [Apple Core ML model catalog](https://developer.apple.com/machine-learning/models/) · [Depth Anything V2 authors](https://github.com/DepthAnything/Depth-Anything-V2) · [Bundled model license](Sources/FloatingPhoto/Resources/DepthAnything-LICENSE.txt)
 
 ## Video export
 
@@ -43,4 +43,4 @@ try await scene.exportVideo(
 )
 ```
 
-The MP4 uses the same two-layer renderer as the interactive view, starting and ending at the original motion path. The [picker demo](Demo/FloatingPhotoDemo/README.md) runs on iOS 16 or later.
+The MP4 uses the same continuous depth renderer as the interactive view, starting and ending at the original motion path. The [picker demo](Demo/FloatingPhotoDemo/README.md) runs on iOS 16 or later.

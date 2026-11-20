@@ -10,6 +10,8 @@ struct PhotoSurface {
     let indices: [UInt16]
     let hasDepth: Bool
     let hasForegroundMask: Bool
+    /// Normalized depth values in top-left row order for the fragment renderer.
+    let depthValues: [Float]?
     private let maximumGradient: Float
 
     init(
@@ -29,6 +31,7 @@ struct PhotoSurface {
         self.rows = rows
         hasDepth = depthSamples != nil
         hasForegroundMask = maskSamples != nil
+        depthValues = depthSamples ?? maskSamples
 
         let shortSide = min(imageSize.width, imageSize.height)
         let width = Float(imageSize.width / shortSide), height = Float(imageSize.height / shortSide)
@@ -43,13 +46,11 @@ struct PhotoSurface {
                 let t = min(1, distanceToEdge / 0.09)
                 let edgeWeight = t * t * (3 - 2 * t)
                 let index = y * (columns + 1) + x
-                let disparity: Float
-                if let maskSamples {
-                    let subjectDepth = depthSamples?[index] ?? maskSamples[index]
-                    disparity = subjectDepth * maskSamples[index] * foreground
-                } else {
-                    disparity = depthSamples.map { $0[index] * (foreground + background) - background } ?? (-0.35 * background)
-                }
+                let normalizedDepth = depthSamples?[index] ?? maskSamples?[index] ?? 0
+                // Project the whole image from one continuous depth field. The
+                // foreground mask is only a compatibility fallback when a
+                // depth estimate is unavailable.
+                let disparity = normalizedDepth * (foreground + background) - background
                 vertices.append(SIMD4(u, v, disparity * edgeWeight, 0))
             }
         }
@@ -79,8 +80,10 @@ struct PhotoSurface {
             a: sx, b: 0, c: 0, d: sy, tx: 0.5 - bounds.minX * sx, ty: 0.5 - bounds.minY * sy
         ))
         let softness = min(1, max(0, configuration.backgroundBlur / 12)) * min(1, max(0, configuration.backgroundBlurOpacity))
-        let radius = max(1, CGFloat(min(columns, rows)) * (0.016 + 0.025 * softness))
-        let smoothedDepth = grid.applyingGaussianBlur(sigma: Double(radius))
+        // Keep depth edges readable for relief sampling. A large blur makes a
+        // foreground boundary behave like a detached sticker.
+        let radius = 0.45 + 0.6 * softness
+        let smoothedDepth = grid.applyingGaussianBlur(sigma: radius)
         let count = (columns + 1) * (rows + 1)
         var values = [Float](repeating: 0, count: count)
         context.render(smoothedDepth, toBitmap: &values, rowBytes: (columns + 1) * MemoryLayout<Float>.stride,
@@ -92,10 +95,16 @@ struct PhotoSurface {
         return values.map { min(1, max(0, ($0 - low) / (high - low))) }
     }
 
-    /// xy aspect-fills the viewport. zw is unit disparity's travel in clip coordinates.
+    /// xy is the visible portion of the photo texture. zw is the normalized
+    /// camera travel used by the pixel parallax pass.
     func camera(at offset: CGSize, canvas: CGSize, configuration: FloatingPhotoConfiguration) -> SIMD4<Float> {
         let fit = max(canvas.width / imageSize.width, canvas.height / imageSize.height) * max(1, configuration.backgroundScale)
         let displayed = CGSize(width: imageSize.width * fit, height: imageSize.height * fit)
+        let visibleScale = SIMD2(
+            Float(min(1, canvas.width / max(1, displayed.width))),
+            Float(min(1, canvas.height / max(1, displayed.height)))
+        )
+
         var direction = SIMD2(Float(offset.width), Float(offset.height))
         if !direction.x.isFinite || !direction.y.isFinite { direction = .zero }
         let magnitude = simd_length(direction)
@@ -105,11 +114,10 @@ struct PhotoSurface {
         } else {
             direction = .zero
         }
-        let requested = 0.035 * min(1, max(0, configuration.intensity)) * min(canvas.width, canvas.height)
-        // For every triangle, det(I + travel ⊗ grad(disparity)) stays positive at every allowed tilt.
-        let foldLimit = maximumGradient > 0 ? 0.65 * min(displayed.width, displayed.height) / CGFloat(maximumGradient) : requested
-        let travel = 2 * min(requested, foldLimit) * CGFloat(travelFraction)
-        return SIMD4(Float(displayed.width / canvas.width), Float(displayed.height / canvas.height),
-                     direction.x * Float(travel / canvas.width), direction.y * Float(travel / canvas.height))
+
+        // A few percent of the texture width is enough for a visible relief
+        // cue. The depth shader distributes this travel across all pixels.
+        let travel = 0.055 * min(1, max(0, configuration.intensity)) * CGFloat(travelFraction)
+        return SIMD4(visibleScale.x, visibleScale.y, direction.x * Float(travel), direction.y * Float(travel))
     }
 }
