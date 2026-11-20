@@ -77,7 +77,11 @@ private struct SurfaceView: UIViewRepresentable {
         view.isPaused = true
         view.enableSetNeedsDisplay = true
         view.colorPixelFormat = .bgra8Unorm
-        view.isOpaque = false
+        // Core Image writes directly into the drawable texture. The default
+        // framebuffer-only flag prevents that path on some real devices.
+        view.framebufferOnly = false
+        view.isOpaque = true
+        view.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         return view
     }
 
