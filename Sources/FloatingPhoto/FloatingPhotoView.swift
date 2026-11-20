@@ -38,7 +38,7 @@ private struct SceneView: View {
     }
 
     private var track: Bool {
-        motion == .device && !reduceMotion && appPhase == .active && scene.renderer?.device != nil
+        motion == .device && !reduceMotion && appPhase == .active
     }
 
     private var offset: CGSize {
@@ -74,12 +74,16 @@ private struct SurfaceView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> PhotoCanvas {
         let view = PhotoCanvas(frame: .zero, device: renderer.device)
-        view.isPaused = true
-        view.enableSetNeedsDisplay = true
+        // Motion updates arrive independently of SwiftUI state changes. Keep
+        // the Metal view drawing continuously so each frame uses the latest
+        // sensor sample without waiting for a view invalidation.
+        view.isPaused = false
+        view.enableSetNeedsDisplay = false
+        view.preferredFramesPerSecond = 60
         view.colorPixelFormat = .bgra8Unorm
-        // Core Image writes directly into the drawable texture. The default
-        // framebuffer-only flag prevents that path on some real devices.
-        view.framebufferOnly = false
+        // The renderer uses a Metal render encoder and can keep the drawable
+        // framebuffer-only for the normal MTKView presentation path.
+        view.framebufferOnly = true
         view.isOpaque = true
         view.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         return view
@@ -89,7 +93,6 @@ private struct SurfaceView: UIViewRepresentable {
         view.renderer = renderer
         view.offset = offset
         view.followsDeviceAxes = followsDeviceAxes
-        view.setNeedsDisplay()
     }
 }
 
