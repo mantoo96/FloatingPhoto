@@ -1,18 +1,13 @@
 import CoreImage
 import simd
 
-/// A connected grid in top-left photo coordinates. Each vertex owns one original texture coordinate.
+/// The normalized depth texture and camera mapping used by the full-screen relief pass.
 struct PhotoSurface {
     let imageSize: CGSize
     let columns: Int
     let rows: Int
-    let vertices: [SIMD4<Float>]
-    let indices: [UInt16]
-    let hasDepth: Bool
-    let hasForegroundMask: Bool
     /// Normalized depth values in top-left row order for the fragment renderer.
     let depthValues: [Float]?
-    private let maximumGradient: Float
 
     init(
         imageSize: CGSize,
@@ -24,52 +19,13 @@ struct PhotoSurface {
         let longSide = max(imageSize.width, imageSize.height)
         let columns = max(2, Int((128 * imageSize.width / longSide).rounded()))
         let rows = max(2, Int((128 * imageSize.height / longSide).rounded()))
-        let depthSamples = depth.flatMap { Self.sample($0, columns: columns, rows: rows, configuration: configuration, context: context) }
-        let maskSamples = foregroundMask.flatMap { Self.sample($0, columns: columns, rows: rows, configuration: configuration, context: context) }
         self.imageSize = imageSize
         self.columns = columns
         self.rows = rows
-        hasDepth = depthSamples != nil
-        hasForegroundMask = maskSamples != nil
-        depthValues = depthSamples ?? maskSamples
-
-        let shortSide = min(imageSize.width, imageSize.height)
-        let width = Float(imageSize.width / shortSide), height = Float(imageSize.height / shortSide)
-        let foreground = Float(min(2, max(0, configuration.foregroundDepth)))
-        let background = Float(min(2, max(0, configuration.backgroundDepth)))
-        var vertices = [SIMD4<Float>]()
-        vertices.reserveCapacity((columns + 1) * (rows + 1))
-        for y in 0...rows {
-            for x in 0...columns {
-                let u = Float(x) / Float(columns), v = Float(y) / Float(rows)
-                let distanceToEdge = min(min(u, 1 - u) * width, min(v, 1 - v) * height)
-                let t = min(1, distanceToEdge / 0.09)
-                let edgeWeight = t * t * (3 - 2 * t)
-                let index = y * (columns + 1) + x
-                let normalizedDepth = depthSamples?[index] ?? maskSamples?[index] ?? 0
-                // Project the whole image from one continuous depth field. The
-                // foreground mask is only a compatibility fallback when a
-                // depth estimate is unavailable.
-                let disparity = normalizedDepth * (foreground + background) - background
-                vertices.append(SIMD4(u, v, disparity * edgeWeight, 0))
-            }
+        func samples(_ field: CIImage) -> [Float]? {
+            Self.sample(field, columns: columns, rows: rows, configuration: configuration, context: context)
         }
-        self.vertices = vertices
-
-        var indices = [UInt16]()
-        indices.reserveCapacity(6 * columns * rows)
-        var steepest: Float = 0
-        let dx = Float(columns) / width, dy = Float(rows) / height
-        for y in 0..<rows {
-            for x in 0..<columns {
-                let a = y * (columns + 1) + x, b = a + 1, c = a + columns + 1, d = c + 1
-                indices.append(contentsOf: [UInt16(a), UInt16(b), UInt16(c), UInt16(b), UInt16(d), UInt16(c)])
-                let za = vertices[a].z, zb = vertices[b].z, zc = vertices[c].z, zd = vertices[d].z
-                steepest = max(steepest, hypot((zb - za) * dx, (zc - za) * dy), hypot((zd - zc) * dx, (zd - zb) * dy))
-            }
-        }
-        self.indices = indices
-        maximumGradient = steepest
+        depthValues = depth.flatMap(samples) ?? foregroundMask.flatMap(samples)
     }
 
     private static func sample(_ field: CIImage, columns: Int, rows: Int, configuration: FloatingPhotoConfiguration, context: CIContext) -> [Float]? {

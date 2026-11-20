@@ -72,31 +72,53 @@ final class PhotoParallaxTests: XCTestCase {
         XCTAssertEqual(beyond.z, full.z, accuracy: 0.0001)
     }
 
-    func testDepthCannotFoldOrUncoverCanvasEvenWithLegacyExtremeSettings() {
+    func testExtremeTiltKeepsTheRenderedSubjectConnectedAndCoversTheCanvas() throws {
         let config = FloatingPhotoConfiguration(intensity: 12, backgroundScale: 1, foregroundDepth: 10, backgroundDepth: 10)
-        let surface = PhotoSurface(imageSize: size, depth: depth, configuration: config, context: FloatingPhotoRenderer.context)
-        XCTAssertTrue(surface.hasDepth)
-        for canvas in [size, CGSize(width: 360, height: 760), CGSize(width: 960, height: 300)] {
-            for direction in [CGSize(width: 1, height: 1), CGSize(width: -1, height: 1), CGSize(width: 1, height: -1), CGSize(width: -1, height: -1), CGSize(width: 100, height: 0)] {
-                let camera = surface.camera(at: direction, canvas: canvas, configuration: config)
-                let projected = surface.vertices.map { v -> SIMD2<Float> in
-                    if v.x == 0 || v.x == 1 || v.y == 0 || v.y == 1 { XCTAssertEqual(v.z, 0) }
-                    return SIMD2((2 * v.x - 1) * camera.x + v.z * camera.z, (2 * v.y - 1) * camera.y + v.z * camera.w)
-                }
-                var minArea = Float.greatestFiniteMagnitude
-                for i in stride(from: 0, to: surface.indices.count, by: 3) {
-                    let a = projected[Int(surface.indices[i])]
-                    let ab = projected[Int(surface.indices[i+1])] - a, ac = projected[Int(surface.indices[i+2])] - a
-                    minArea = min(minArea, ab.x * ac.y - ab.y * ac.x)
-                }
-                XCTAssertGreaterThan(minArea, 0)
+        let renderer = FloatingPhotoRenderer(source: photo, depth: depth, configuration: config)
+        let device = try XCTUnwrap(renderer.device)
+        for (width, height) in [(256, 176), (128, 242), (260, 88)] {
+            let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false)
+            descriptor.storageMode = .shared
+            descriptor.usage = .renderTarget
+            let target = try XCTUnwrap(device.makeTexture(descriptor: descriptor))
+            for (x, y) in [(1, 1), (-1, 1), (1, -1), (-1, -1), (100, 0)] {
+                let commands = try XCTUnwrap(renderer.frame(at: CGSize(width: x, height: y), into: target))
+                commands.commit()
+                commands.waitUntilCompleted()
+                XCTAssertEqual(commands.status, .completed)
+                var pixels = [UInt8](repeating: 0, count: 4 * width * height)
+                target.getBytes(&pixels, bytesPerRow: 4 * width, from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)
+                XCTAssertTrue(stride(from: 3, to: pixels.count, by: 4).allSatisfy { pixels[$0] == 255 })
+                try assertOneRedSubject(in: pixels, width: width, height: height)
             }
         }
     }
 
+    // Flood-fill the visible subject. A curved silhouette can cross a single row more than once.
+    private func assertOneRedSubject(in pixels: [UInt8], width: Int, height: Int) throws {
+        let rowWidth = width + 2
+        var red = [Bool](repeating: false, count: rowWidth * (height + 2))
+        for y in 0..<height {
+            for x in 0..<width {
+                let i = 4 * (y * width + x)
+                red[(y + 1) * rowWidth + x + 1] = pixels[i + 2] > pixels[i + 1]
+            }
+        }
+        let seed = try XCTUnwrap(red.firstIndex(of: true))
+        red[seed] = false
+        var pending = [seed]
+        while let pixel = pending.popLast() {
+            for neighbor in [pixel - 1, pixel + 1, pixel - rowWidth, pixel + rowWidth] where red[neighbor] {
+                red[neighbor] = false
+                pending.append(neighbor)
+            }
+        }
+        XCTAssertFalse(red.contains(true), "The subject should form a single connected region")
+    }
+
     func testFlatDepthDegrades() {
         let surface = PhotoSurface(imageSize: size, depth: CIImage(color: .white).cropped(to: bounds), configuration: .default, context: FloatingPhotoRenderer.context)
-        XCTAssertFalse(surface.hasDepth)
+        XCTAssertNil(surface.depthValues)
     }
 
     func testRenderedPhotoKeepsSubjectVisibleWithoutUncoveredPixels() throws {
@@ -174,19 +196,13 @@ final class PhotoParallaxTests: XCTestCase {
         XCTAssertNotNil(try AVAssetImageGenerator(asset: asset).copyCGImage(at: .zero, actualTime: nil))
     }
 
-    func testForegroundMaskKeepsBackgroundVerticesFlat() {
-        let fullDepth = CIImage(color: .white).cropped(to: bounds)
-        let surface = PhotoSurface(
-            imageSize: size,
-            depth: fullDepth,
-            foregroundMask: mask,
-            configuration: .default,
-            context: FloatingPhotoRenderer.context
-        )
-
-        XCTAssertTrue(surface.hasDepth)
-        XCTAssertTrue(surface.hasForegroundMask)
-        XCTAssertEqual(surface.vertices.first?.z, 0)
-        XCTAssertGreaterThan(surface.vertices.map(\.z).max() ?? 0, 0)
+    func testFlatDepthUsesTheForegroundMaskAsTheDepthTexture() throws {
+        let flat = CIImage(color: .white).cropped(to: bounds)
+        let surface = PhotoSurface(imageSize: size, depth: flat, foregroundMask: mask, configuration: .default, context: FloatingPhotoRenderer.context)
+        let maskOnly = PhotoSurface(imageSize: size, depth: nil, foregroundMask: mask, configuration: .default, context: FloatingPhotoRenderer.context)
+        let samples = try XCTUnwrap(surface.depthValues)
+        XCTAssertEqual(samples, maskOnly.depthValues)
+        XCTAssertEqual(samples.min(), 0)
+        XCTAssertEqual(samples.max(), 1)
     }
 }

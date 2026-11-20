@@ -10,7 +10,8 @@ final class FloatingPhotoConfigurationTests: XCTestCase {
             backgroundBlur: -2,
             backgroundScale: 0,
             foregroundDepth: -1,
-            backgroundDepth: -1
+            backgroundDepth: -1,
+            edgeFogOpacity: -1
         )
 
         XCTAssertEqual(configuration.intensity, 0)
