@@ -1,5 +1,7 @@
 # FloatingPhoto
 
+[English](README.md) · [简体中文](README.zh-CN.md)
+
 Turn a still image into a tilt-responsive SwiftUI photo with depth-based parallax, then export the same scene as an H.264 MP4.
 
 FloatingPhoto is a native iOS Swift Package. It keeps the original photo visible while depth is prepared, reveals the interactive frame after the first successful render, and falls back to a static photo when a usable depth field is unavailable.
