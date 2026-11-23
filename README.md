@@ -1,12 +1,48 @@
 # FloatingPhoto
 
-Display one ordinary photo as a tilt-responsive SwiftUI card. FloatingPhoto estimates relative depth on the device and uses it to move near and distant parts of the same image by different amounts.
+Turn a still image into a tilt-responsive SwiftUI photo with depth-based parallax, then export the same scene as an H.264 MP4.
 
-## Add the package
+FloatingPhoto is a native iOS Swift Package. It keeps the original photo visible while depth is prepared, reveals the interactive frame after the first successful render, and falls back to a static photo when a usable depth field is unavailable.
 
-Add the `FloatingPhoto` library product to your app target in Xcode using Swift Package Manager. You can select the local checkout with **Add Local…**. The library targets iOS 15 and Swift 5.7 or later. The [PhotosPicker demo](Demo/FloatingPhotoDemo/README.md) runs on iOS 16 or later.
+## Features
 
-## Show a photo
+- SwiftUI preview with device-motion input or a fixed camera offset
+- Continuous relative-depth rendering with Metal
+- Depth Anything V2 Small on iOS 17 when the package is built with Swift 5.9 or later
+- Vision-based foreground or person segmentation fallback
+- Configurable camera travel, tilt sensitivity, crop, blur and depth strength
+- Reduced Motion support with a centered preview
+- Reusable preparation state shared by a preview and a video export
+- H.264 MP4 export with a repeatable camera path
+- Static-photo fallback for images without usable depth data
+
+## Requirements
+
+- iOS 15 or later
+- Swift 5.7 or later
+- A device or simulator with Metal support for the interactive renderer
+- iOS 17 or later with a Swift 5.9 or later build for the bundled Depth Anything V2 Small model
+
+The PhotosPicker demo requires iOS 16 or later because `PhotosPicker` was introduced in iOS 16.
+
+## Installation
+
+Add the package in Xcode with **File → Add Package Dependencies…** and enter your repository URL.
+
+For a `Package.swift` dependency, replace the account name and version with the release you want to use:
+
+```swift
+dependencies: [
+    .package(
+        url: "https://github.com/<your-account>/FloatingPhoto.git",
+        from: "1.0.0"
+    )
+]
+```
+
+Then add the `FloatingPhoto` product to your app target.
+
+## Quick start
 
 ```swift
 import FloatingPhoto
@@ -23,11 +59,11 @@ struct PhotoCard: View {
 }
 ```
 
-The view prepares automatically and shows a progress indicator over the original image. Once Metal presents the first depth frame, the cover fades away. Reduce Motion keeps the preview centered and reveals the frame immediately. A photo with no usable depth stays visible as a still image.
+The view prepares the scene automatically. During preparation, the original image remains visible with the default progress indicator. When the first depth frame is presented, the cover fades away and the preview follows device tilt. Reduce Motion keeps the preview centered and reveals it immediately.
 
-## Customize the loading and ready states
+## Customize the status overlay
 
-Apply `statusOverlay` directly to `FloatingPhotoView`. The closure replaces the built-in indicator and can use your app's language, materials and layout.
+Use `statusOverlay` to provide your own loading, ready, degraded and failed states.
 
 ```swift
 FloatingPhotoView(image: photo)
@@ -35,7 +71,8 @@ FloatingPhotoView(image: photo)
         switch phase {
         case .idle, .processing:
             ProgressView("Preparing depth…")
-                .padding().background(.regularMaterial, in: Capsule())
+                .padding()
+                .background(.regularMaterial, in: Capsule())
         case .ready:
             EmptyView()
         case .degraded:
@@ -46,13 +83,26 @@ FloatingPhotoView(image: photo)
     }
 ```
 
-Loading bytes from a photo picker belongs to the host app. Start that indicator as soon as the user picks an item. Once you have a `UIImage`, the view's overlay covers depth preparation through first presentation. The demo uses both stages and briefly shows a tilt hint when the photo becomes interactive.
+`processing` remains visible until the first depth frame appears onscreen. A prepared scene can therefore be exportable before the preview reports `ready`.
 
-## Share preparation between preview and export
+The preparation phases are:
 
-Keep one `FloatingPhotoScene` per photo and configuration. Pass that instance to the view and to your export action. Replacing it starts a new preview. A caller that needs to observe preparation can use `@ObservedObject` in SwiftUI or subscribe to `scene.$phase` on the main actor.
+| Phase | Meaning |
+| --- | --- |
+| `.idle` | The scene has been created and has not started preparing. |
+| `.processing` | Depth data and the renderer are being prepared, or the preview is waiting for its first frame. |
+| `.ready` | A depth scene is available and its first frame has been presented. |
+| `.degraded` | A static fallback is available because no usable depth field was produced. |
+| `.failed` | The source image could not be prepared. |
+
+## Share a scene with video export
+
+Create one `FloatingPhotoScene` for a selected photo and configuration. Pass that instance to the view and reuse it for export.
 
 ```swift
+import FloatingPhoto
+import SwiftUI
+
 struct ShareableCard: View {
     @ObservedObject var scene: FloatingPhotoScene
 
@@ -65,27 +115,62 @@ struct ShareableCard: View {
 @MainActor
 func exportMovie(for scene: FloatingPhotoScene, to file: URL) async throws {
     await scene.prepare()
+    guard scene.canExport else { return }
+
     try await scene.exportVideo(
-        to: file, size: CGSize(width: 1080, height: 1440),
-        duration: 4, frameRate: 30
+        to: file,
+        size: CGSize(width: 1080, height: 1440),
+        duration: 4,
+        frameRate: 30
     )
 }
 ```
 
-Create the scene with `FloatingPhotoScene(image: photo)` when the selection changes. The preview prepares it automatically. An explicit `prepare()` during or after that work reuses the same result. Use `scene.canExport` to enable an export button. Pass a fresh local `.mp4` file URL, or a movie path you intend to replace.
+Concurrent calls to `prepare()` share the same preparation work. A static fallback can also be exported. `exportVideo` replaces an existing file at the destination URL, so pass a local `.mp4` URL that your app owns.
 
-| Phase | `scene.phase` | `statusOverlay` |
-| --- | --- | --- |
-| `.idle` | Scene created | Original photo available while preparation starts |
-| `.processing` | Estimating depth and building the renderer | Original photo stays in place through first presentation |
-| `.ready` | Depth scene prepared for preview or export | The first depth frame has appeared onscreen |
-| `.degraded` | A static fallback can be exported | The original photo stays visible |
-| `.failed` | The image could not be prepared | The host can prompt for another photo |
+## Motion and configuration
 
-## Motion and depth
+The default configuration is suitable for most photos. Use `.subtle` for a smaller camera movement and crop.
 
-The opening handheld position is the center. Choose `configuration: .subtle` for less travel. `motionSensitivity` changes how much small tilts move the camera, and `intensity` controls its maximum travel. `motion: .staticOffset(x: 1, y: 0)` previews a fixed position. Export renders a repeatable camera path that starts and ends at the center.
+```swift
+FloatingPhotoView(
+    image: photo,
+    configuration: .subtle,
+    motion: .device
+)
+```
 
-With Swift 5.9 or later on iOS 17 or later, the bundled Depth Anything V2 Small Core ML model supplies a continuous relative-depth field. Vision foreground masks provide a coarse fallback. Earlier supported configurations use Vision person segmentation. The renderer samples the original photo with a centered crop. The legacy `edgeFogOpacity` parameter is retained for source compatibility.
+For previews, a fixed camera position is useful for screenshots and UI tests:
 
-The bundled Depth Anything V2 Small model is distributed under Apache License 2.0. [Apple Core ML model catalog](https://developer.apple.com/machine-learning/models/) · [Depth Anything V2 authors](https://github.com/DepthAnything/Depth-Anything-V2) · [Bundled model license](Sources/FloatingPhoto/Resources/DepthAnything-LICENSE.txt)
+```swift
+FloatingPhotoView(
+    image: photo,
+    motion: .staticOffset(x: 0.6, y: 0)
+)
+```
+
+`intensity` controls maximum travel, `motionSensitivity` controls the response to small tilts, `backgroundScale` controls the centered crop, and the blur and depth properties shape the relief effect. Set `allowsDeviceMotion` to `false` when an app should never start motion updates.
+
+## Depth processing
+
+On iOS 17 and later, builds using Swift 5.9 or later can use the bundled Depth Anything V2 Small Core ML model for a continuous relative-depth field. Vision foreground segmentation provides a fallback on those systems. Earlier supported configurations use Vision person segmentation.
+
+If depth preparation produces no usable field, the scene enters `.degraded`. The original image remains available as a still preview and can still be exported.
+
+## Demo
+
+Open [Demo/FloatingPhotoDemo.xcodeproj](Demo/FloatingPhotoDemo.xcodeproj) in Xcode. The demo uses `PhotosPicker`, shows photo-transfer and depth-preparation states, supports Reduce Motion, and demonstrates a fixed preview offset for repeatable Debug previews.
+
+Before running the demo, select your own development team and bundle identifier in Xcode.
+
+## Project structure
+
+```text
+Sources/FloatingPhoto/     Swift package
+Tests/FloatingPhotoTests/ Package and renderer tests
+Demo/FloatingPhotoDemo/    PhotosPicker demo app
+```
+
+## Attribution
+
+The bundled Depth Anything V2 Small model is distributed under the Apache License 2.0. See the [model license](Sources/FloatingPhoto/Resources/DepthAnything-LICENSE.txt), the [Apple Core ML model catalog](https://developer.apple.com/machine-learning/models/), and the [Depth Anything V2 project](https://github.com/DepthAnything/Depth-Anything-V2).
