@@ -2,6 +2,8 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
+把静态照片变成随设备倾斜产生景深视差的 SwiftUI 视图，同一场景可导出 H.264 MP4。基于 Depth Anything V2 + Metal，支持 iOS 15+。
+
 将静态图片转换为可响应倾斜操作的 SwiftUI 照片，通过深度实现视差效果，并将同一场景导出为 H.264 MP4 视频。
 
 FloatingPhoto 是一个原生 iOS Swift Package。在准备深度数据期间，它会保持显示原始照片。首次成功渲染后才显示交互式画面。如果没有可用的深度场，则自动回退为静态照片。
